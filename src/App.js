@@ -136,6 +136,14 @@ function App() {
         <div className="bg-gray-100 min-h-screen p-8">
             <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
                 <h1 className="text-3xl font-bold text-center mb-6">Clasificación y Reentrenamiento del Modelo</h1>
+                
+                <h2 className="text-3xl font-bold text-center mb-6">¡Bienvenido!</h2>
+               
+                <p className="text-lg text-center mb-6">
+                    Esta aplicación permite la clasificación de elementos textuales de manera automática y, además, permite el reentremaniento del modelo de clasificación para un uso más efectivo. 
+                    El propósito de esta herramienta es mejorar considerablemente los tiempos y recursos utilizados en la clasificación de información textual brindada por ciudadanos con los diferentes Objetivos de Desarrollo Sostenible (ODS). 
+                </p>
+                
                 <div className="flex justify-center gap-4 mb-8">
                     <button
                         onClick={() => handleOptionChange('classify')}
