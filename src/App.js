@@ -7,10 +7,15 @@ function App() {
     const [classificationType, setClassificationType] = useState('single');
     const [opinions, setOpinions] = useState(['']);
     const [fileData, setFileData] = useState(null);
-    const [uploadedFile, setUploadedFile] = useState(null); // Nuevo estado para el archivo original
+    const [uploadedFile, setUploadedFile] = useState(null);
     const [result, setResult] = useState(null);
     const [metrics, setMetrics] = useState(null);
     const [encoding, setEncoding] = useState('UTF-8');
+
+    const [isRetraining, setIsRetraining] = useState(false);
+    const [error, setError] = useState(null);
+
+
 
     const handleOptionChange = (option) => {
         setSelectedOption(option);
@@ -47,15 +52,17 @@ function App() {
 
         if (fileExtension === 'csv') {
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = function (e) {
                 const csvContent = e.target.result;
                 const jsonContent = handleCSVToJson(csvContent);
                 setFileData(jsonContent);
             };
             reader.readAsText(file, encoding);
+            setMetrics(null);
+            setError(null);
         } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
             const reader = new FileReader();
-            reader.onload = function(e) {
+            reader.onload = function (e) {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
 
@@ -68,6 +75,8 @@ function App() {
                 setFileData({ textos });
             };
             reader.readAsArrayBuffer(file);
+            setMetrics(null);
+            setError(null);
         } else {
             alert('Por favor, sube un archivo CSV o XLSX válido.');
         }
@@ -95,15 +104,29 @@ function App() {
 
     const handleRetrain = async () => {
         if (uploadedFile) {
+            setIsRetraining(true);
+            setError(null);
             const formData = new FormData();
             formData.append('file', uploadedFile);
 
-            const response = await fetch('http://127.0.0.1:8000/retrain', {
-                method: 'POST',
-                body: formData
-            });
-            const metricsData = await response.json();
-            setMetrics(metricsData);
+            try {
+                const response = await fetch('http://127.0.0.1:8000/retrain', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const metricsData = await response.json();
+
+                if (response.ok) {
+                    setMetrics(metricsData);
+                } else {
+                    setError(metricsData.error || 'Ocurrió un error durante el reentrenamiento.');
+                }
+            } catch (err) {
+                setError('No se pudo conectar con el servidor.');
+            } finally {
+                setIsRetraining(false);
+            }
         } else {
             alert('Por favor, sube un archivo para reentrenar.');
         }
@@ -114,14 +137,14 @@ function App() {
             <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
                 <h1 className="text-3xl font-bold text-center mb-6">Clasificación y Reentrenamiento del Modelo</h1>
                 <div className="flex justify-center gap-4 mb-8">
-                    <button 
-                        onClick={() => handleOptionChange('classify')} 
+                    <button
+                        onClick={() => handleOptionChange('classify')}
                         className="btn btn-primary"
                     >
                         Clasificar Opinión
                     </button>
-                    <button 
-                        onClick={() => handleOptionChange('retrain')} 
+                    <button
+                        onClick={() => handleOptionChange('retrain')}
                         className="btn btn-secondary"
                     >
                         Reentrenar Modelo
@@ -136,7 +159,7 @@ function App() {
                             <label className="label">
                                 <span className="label-text">Tipo de clasificación:</span>
                             </label>
-                            <select 
+                            <select
                                 className="select select-bordered w-full"
                                 value={classificationType}
                                 onChange={(e) => setClassificationType(e.target.value)}
@@ -151,7 +174,7 @@ function App() {
                                 <label className="label">
                                     <span className="label-text">Selecciona la codificación del archivo (solo para CSV):</span>
                                 </label>
-                                <select 
+                                <select
                                     className="select select-bordered w-full"
                                     value={encoding}
                                     onChange={(e) => setEncoding(e.target.value)}
@@ -172,22 +195,22 @@ function App() {
                                             placeholder={`Opinión ${index + 1}`}
                                             className="textarea textarea-bordered w-full"
                                         />
-                                        <button 
-                                            onClick={() => removeOpinionField(index)} 
+                                        <button
+                                            onClick={() => removeOpinionField(index)}
                                             className="btn btn-danger ml-2"
                                         >
                                             Eliminar
                                         </button>
                                     </div>
                                 ))}
-                                <button 
-                                    onClick={addOpinionField} 
+                                <button
+                                    onClick={addOpinionField}
                                     className="btn btn-secondary mb-4 w-full"
                                 >
                                     Agregar más opiniones
                                 </button>
-                                <button 
-                                    onClick={handleClassify} 
+                                <button
+                                    onClick={handleClassify}
                                     className="btn btn-primary w-full"
                                 >
                                     Clasificar
@@ -195,14 +218,14 @@ function App() {
                             </div>
                         ) : (
                             <div>
-                                <input 
-                                    type="file" 
+                                <input
+                                    type="file"
                                     accept=".csv, .xlsx, .xls"
-                                    onChange={handleFileUpload} 
+                                    onChange={handleFileUpload}
                                     className="file-input file-input-bordered w-full mb-4"
                                 />
-                                <button 
-                                    onClick={handleClassify} 
+                                <button
+                                    onClick={handleClassify}
                                     className="btn btn-primary w-full"
                                 >
                                     Clasificar
@@ -232,24 +255,43 @@ function App() {
                 {selectedOption === 'retrain' && (
                     <div className="retrain-section mb-6">
                         <h2 className="text-2xl font-semibold mb-4">Reentrenar Modelo</h2>
-                        <input 
-                            type="file" 
+                        <input
+                            type="file"
                             accept=".csv, .xlsx, .xls"
-                            onChange={handleFileUpload} 
+                            onChange={handleFileUpload}
                             className="file-input file-input-bordered w-full mb-4"
                         />
-                        <button 
-                            onClick={handleRetrain} 
-                            className="btn btn-secondary w-full"
+                        {isRetraining && (
+                            <div className="mt-6 text-center">
+                                <p className="text-lg font-semibold mb-5">Reentrenando, por favor espere...</p>
+                                <div className="loader"></div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={handleRetrain}
+                            className="btn btn-secondary w-full mt-5"
                         >
                             Reentrenar
                         </button>
-                        {metrics && (
+                        {metrics && !isRetraining && (
                             <div className="mt-6">
                                 <h3 className="font-semibold text-lg">Métricas de Desempeño:</h3>
-                                <p>{JSON.stringify(metrics)}</p>
+                                <ul className="list-disc list-inside">
+                                    <li>Precisión: {(metrics.precision * 100).toFixed(2)}%</li>
+                                    <li>Recall: {(metrics.recall * 100).toFixed(2)}%</li>
+                                    <li>Puntuación F1: {(metrics.f1_score * 100).toFixed(2)}%</li>
+                                </ul>
                             </div>
                         )}
+                        {error && !isRetraining && (
+                            <div className="mt-6 text-red-600">
+                                <h3 className="font-semibold text-lg">Error:</h3>
+                                <p>{error}</p>
+                            </div>
+                        )}
+
+
                     </div>
                 )}
             </div>
