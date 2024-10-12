@@ -1,13 +1,16 @@
 // src/App.js
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx'; // Importamos la librería xlsx
 
 function App() {
     const [selectedOption, setSelectedOption] = useState(null);
     const [classificationType, setClassificationType] = useState('single');
-    const [opinion, setOpinion] = useState('');
-    const [file, setFile] = useState(null);
+    const [opinions, setOpinions] = useState(['']);
+    const [fileData, setFileData] = useState(null);
+    const [uploadedFile, setUploadedFile] = useState(null); // Nuevo estado para el archivo original
     const [result, setResult] = useState(null);
     const [metrics, setMetrics] = useState(null);
+    const [encoding, setEncoding] = useState('UTF-8');
 
     const handleOptionChange = (option) => {
         setSelectedOption(option);
@@ -15,21 +18,75 @@ function App() {
         setMetrics(null);
     };
 
+    const handleOpinionChange = (index, value) => {
+        const newOpinions = [...opinions];
+        newOpinions[index] = value;
+        setOpinions(newOpinions);
+    };
+
+    const addOpinionField = () => {
+        setOpinions([...opinions, '']);
+    };
+
+    const removeOpinionField = (index) => {
+        const newOpinions = opinions.filter((_, i) => i !== index);
+        setOpinions(newOpinions);
+    };
+
+    const handleCSVToJson = (csv) => {
+        const lines = csv.split("\n");
+        const textos = lines.map(line => line.trim()).filter(line => line !== "");
+        return { textos };
+    };
+
+    const handleFileUpload = async (event) => {
+        const file = event.target.files[0];
+        setUploadedFile(file); // Almacenamos el archivo original
+        const fileName = file.name;
+        const fileExtension = fileName.substr(fileName.lastIndexOf('.') + 1).toLowerCase();
+
+        if (fileExtension === 'csv') {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const csvContent = e.target.result;
+                const jsonContent = handleCSVToJson(csvContent);
+                setFileData(jsonContent);
+            };
+            reader.readAsText(file, encoding);
+        } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                const textos = jsonData.flat().filter(cell => typeof cell === 'string' && cell.trim() !== '');
+
+                setFileData({ textos });
+            };
+            reader.readAsArrayBuffer(file);
+        } else {
+            alert('Por favor, sube un archivo CSV o XLSX válido.');
+        }
+    };
+
     const handleClassify = async () => {
-        if (classificationType === 'single') {
-            const response = await fetch('/api/predict', {
+        let requestBody;
+
+        if (classificationType === 'single' && opinions.length > 0) {
+            requestBody = { textos: opinions };
+        } else if (classificationType === 'multiple' && fileData) {
+            requestBody = fileData;
+        }
+
+        if (requestBody) {
+            const response = await fetch('http://127.0.0.1:8000/predict', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ opinion })
-            });
-            const data = await response.json();
-            setResult(data);
-        } else if (classificationType === 'multiple' && file) {
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetch('/api/predict', {
-                method: 'POST',
-                body: formData
+                body: JSON.stringify(requestBody),
             });
             const data = await response.json();
             setResult(data);
@@ -37,16 +94,18 @@ function App() {
     };
 
     const handleRetrain = async () => {
-        if (file) {
+        if (uploadedFile) {
             const formData = new FormData();
-            formData.append('file', file);
+            formData.append('file', uploadedFile);
 
-            const response = await fetch('/api/retrain', {
+            const response = await fetch('http://127.0.0.1:8000/retrain', {
                 method: 'POST',
                 body: formData
             });
             const metricsData = await response.json();
             setMetrics(metricsData);
+        } else {
+            alert('Por favor, sube un archivo para reentrenar.');
         }
     };
 
@@ -72,6 +131,7 @@ function App() {
                 {selectedOption === 'classify' && (
                     <div className="classify-section mb-6">
                         <h2 className="text-2xl font-semibold mb-4">Clasificar Opinión</h2>
+                        <h2 className="text-2xl font-semibold mb-4">Asegúrate de poner textos con buena ortografía</h2>
                         <div className="mb-4">
                             <label className="label">
                                 <span className="label-text">Tipo de clasificación:</span>
@@ -81,19 +141,51 @@ function App() {
                                 value={classificationType}
                                 onChange={(e) => setClassificationType(e.target.value)}
                             >
-                                <option value="single">Clasificar una opinión</option>
-                                <option value="multiple">Clasificar varias opiniones (CSV)</option>
+                                <option value="single">Clasificar varias opiniones manualmente</option>
+                                <option value="multiple">Clasificar varias opiniones (CSV o XLSX)</option>
                             </select>
                         </div>
 
+                        {classificationType === 'multiple' && (
+                            <div className="mb-4">
+                                <label className="label">
+                                    <span className="label-text">Selecciona la codificación del archivo (solo para CSV):</span>
+                                </label>
+                                <select 
+                                    className="select select-bordered w-full"
+                                    value={encoding}
+                                    onChange={(e) => setEncoding(e.target.value)}
+                                >
+                                    <option value="UTF-8">UTF-8</option>
+                                    <option value="ISO-8859-1">Latin-1 (ISO-8859-1)</option>
+                                </select>
+                            </div>
+                        )}
+
                         {classificationType === 'single' ? (
                             <div>
-                                <textarea
-                                    value={opinion}
-                                    onChange={(e) => setOpinion(e.target.value)}
-                                    placeholder="Escribe la opinión aquí..."
-                                    className="textarea textarea-bordered w-full mb-4"
-                                />
+                                {opinions.map((opinion, index) => (
+                                    <div key={index} className="mb-4 flex items-center">
+                                        <textarea
+                                            value={opinion}
+                                            onChange={(e) => handleOpinionChange(index, e.target.value)}
+                                            placeholder={`Opinión ${index + 1}`}
+                                            className="textarea textarea-bordered w-full"
+                                        />
+                                        <button 
+                                            onClick={() => removeOpinionField(index)} 
+                                            className="btn btn-danger ml-2"
+                                        >
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                ))}
+                                <button 
+                                    onClick={addOpinionField} 
+                                    className="btn btn-secondary mb-4 w-full"
+                                >
+                                    Agregar más opiniones
+                                </button>
                                 <button 
                                     onClick={handleClassify} 
                                     className="btn btn-primary w-full"
@@ -105,7 +197,8 @@ function App() {
                             <div>
                                 <input 
                                     type="file" 
-                                    onChange={(e) => setFile(e.target.files[0])} 
+                                    accept=".csv, .xlsx, .xls"
+                                    onChange={handleFileUpload} 
                                     className="file-input file-input-bordered w-full mb-4"
                                 />
                                 <button 
@@ -123,11 +216,11 @@ function App() {
                                 <ul className="list-disc list-inside">
                                     {Array.isArray(result) ? result.map((r, index) => (
                                         <li key={index}>
-                                            {`Clasificación: ${r.label}, Probabilidad: ${(r.probability * 100).toFixed(2)}%`}
+                                            {`Clasificación: ${r.clase_predicha}, Probabilidad: ${(r.probabilidad * 100).toFixed(2)}%`}
                                         </li>
                                     )) : (
                                         <li>
-                                            {`Clasificación: ${result.label}, Probabilidad: ${(result.probability * 100).toFixed(2)}%`}
+                                            {`Clasificación: ${result.clase_predicha}, Probabilidad: ${(result.probabilidad * 100).toFixed(2)}%`}
                                         </li>
                                     )}
                                 </ul>
@@ -141,7 +234,8 @@ function App() {
                         <h2 className="text-2xl font-semibold mb-4">Reentrenar Modelo</h2>
                         <input 
                             type="file" 
-                            onChange={(e) => setFile(e.target.files[0])} 
+                            accept=".csv, .xlsx, .xls"
+                            onChange={handleFileUpload} 
                             className="file-input file-input-bordered w-full mb-4"
                         />
                         <button 
